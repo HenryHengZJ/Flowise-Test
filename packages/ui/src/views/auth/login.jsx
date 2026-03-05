@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 // material-ui
 import { BackdropLoader } from '@/ui-component/loading/BackdropLoader'
@@ -12,11 +13,17 @@ import authApi from '@/api/auth'
 // Hooks
 import useApi from '@/hooks/useApi'
 
+// store
+import { loginSuccess } from '@/store/reducers/authSlice'
+import { store } from '@/store'
+
 // ==============================|| ResolveLoginPage ||============================== //
 
 const ResolveLoginPage = () => {
     const resolveLogin = useApi(authApi.resolveLogin)
+    const adminAutoLogin = useApi(authApi.adminAutoLogin)
     const [loading, setLoading] = useState(false)
+    const navigate = useNavigate()
 
     useEffect(() => {
         setLoading(false)
@@ -29,11 +36,30 @@ const ResolveLoginPage = () => {
     }, [])
 
     useEffect(() => {
-        setLoading(false)
         if (resolveLogin.data) {
-            window.location.href = resolveLogin.data.redirectUrl
+            if (resolveLogin.data.autoLogin) {
+                adminAutoLogin.request()
+            } else {
+                setLoading(false)
+                window.location.href = resolveLogin.data.redirectUrl
+            }
         }
-    }, [resolveLogin.data])
+    }, [resolveLogin.data]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (adminAutoLogin.data) {
+            setLoading(false)
+            store.dispatch(loginSuccess(adminAutoLogin.data))
+            navigate('/')
+        }
+    }, [adminAutoLogin.data, navigate])
+
+    useEffect(() => {
+        if (adminAutoLogin.error) {
+            setLoading(false)
+            window.location.href = '/signin'
+        }
+    }, [adminAutoLogin.error])
 
     return (
         <>

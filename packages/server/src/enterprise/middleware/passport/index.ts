@@ -227,8 +227,10 @@ export const initializeJwtCookieMiddleware = async (app: express.Application, id
                     return res.status(HttpStatusCode.Ok).json({ redirectUrl: '/license-expired' })
                 }
                 return res.status(HttpStatusCode.Ok).json({ redirectUrl: '/signin' })
-            default:
-                return res.status(HttpStatusCode.Ok).json({ redirectUrl: '/signin' })
+            default: {
+                const autoLogin = !!(process.env.FLOWISE_ADMIN_EMAIL && process.env.FLOWISE_ADMIN_PASSWORD)
+                return res.status(HttpStatusCode.Ok).json({ redirectUrl: '/signin', autoLogin })
+            }
         }
     })
 
@@ -277,6 +279,47 @@ export const initializeJwtCookieMiddleware = async (app: express.Application, id
                 }
                 if (identityManager.isEnterprise() && !identityManager.isLicenseValid()) {
                     return res.status(401).json({ redirectUrl: '/license-expired' })
+                }
+
+                req.session.regenerate((regenerateErr) => {
+                    if (regenerateErr) {
+                        return next ? next(regenerateErr) : res.status(500).json({ message: 'Session regeneration failed' })
+                    }
+
+                    req.login(user, { session: true }, async (error) => {
+                        if (error) {
+                            return next ? next(error) : res.status(401).json(error)
+                        }
+                        return setTokenOrCookies(res, user, true, req)
+                    })
+                })
+            } catch (error: any) {
+                return next ? next(error) : res.status(401).json(error)
+            }
+        })(req, res, next)
+    })
+
+    app.post('/api/v1/auth/admin-auto-login', (req, res, next?) => {
+        const platform = getRunningExpressApp().identityManager.getPlatformType()
+        if (platform !== Platform.OPEN_SOURCE) {
+            return res.status(StatusCodes.FORBIDDEN).json({ message: 'Admin auto-login is only available in Open Source mode' })
+        }
+
+        const adminEmail = process.env.FLOWISE_ADMIN_EMAIL
+        const adminPassword = process.env.FLOWISE_ADMIN_PASSWORD
+        if (!adminEmail || !adminPassword) {
+            return res
+                .status(StatusCodes.BAD_REQUEST)
+                .json({ message: 'FLOWISE_ADMIN_EMAIL and FLOWISE_ADMIN_PASSWORD are not configured' })
+        }
+
+        req.body = { email: adminEmail, password: adminPassword }
+        passport.authenticate('login', async (err: any, user: LoggedInUser) => {
+            try {
+                if (err || !user) {
+                    return next
+                        ? next(err)
+                        : res.status(401).json({ message: 'Auto-login failed. Check FLOWISE_ADMIN_EMAIL and FLOWISE_ADMIN_PASSWORD.' })
                 }
 
                 req.session.regenerate((regenerateErr) => {
