@@ -5,14 +5,35 @@ import { Avatar, Box, ButtonBase, Dialog, DialogContent, Stack, TextField, Typog
 import { useTheme } from '@mui/material/styles'
 import { IconCheck, IconInfoCircle, IconPencil, IconX } from '@tabler/icons-react'
 
-import { NodeInputHandler } from '@/atoms'
+import { ConditionBuilder, MessagesInput, NodeInputHandler, StructuredOutputBuilder } from '@/atoms'
 import type { EditDialogProps, InputParam, NodeData } from '@/core/types'
+import { buildDynamicOutputAnchors, evaluateFieldVisibility } from '@/core/utils'
 import { useAgentflowContext, useConfigContext } from '@/infrastructure/store'
+
+import { AsyncInput } from './AsyncInput'
+import { useDynamicOutputPorts } from './useDynamicOutputPorts'
+
+/** Array param names that should render as MessagesInput instead of generic ArrayInput. */
+const MESSAGE_PARAM_NAMES = new Set(['agentMessages', 'llmMessages'])
+
+/** Array param names that should render as StructuredOutputBuilder instead of generic ArrayInput. */
+const STRUCTURED_OUTPUT_PARAM_NAMES = new Set(['agentStructuredOutput', 'llmStructuredOutput'])
 
 export interface EditNodeDialogProps {
     show: boolean
     dialogProps: EditDialogProps
     onCancel: () => void
+}
+
+function computeArrayItemParameters(params: InputParam[], inputValues: Record<string, unknown>): Record<string, InputParam[][]> {
+    const result: Record<string, InputParam[][]> = {}
+    for (const param of params) {
+        if (param.type === 'array' && param.array) {
+            const items = (inputValues[param.name] as Record<string, unknown>[]) || []
+            result[param.name] = items.map((_, index) => evaluateFieldVisibility(param.array!, inputValues, index))
+        }
+    }
+    return result
 }
 
 /**
@@ -29,6 +50,10 @@ function EditNodeDialogComponent({ show, dialogProps, onCancel }: EditNodeDialog
     const [data, setData] = useState<NodeData | null>(null)
     const [isEditingNodeName, setEditingNodeName] = useState(false)
     const [nodeName, setNodeName] = useState('')
+    const [arrayItemParameters, setArrayItemParameters] = useState<Record<string, InputParam[][]>>({})
+
+    const isConditionNode = data?.name === 'conditionAgentflow'
+    const { cleanupOrphanedEdges } = useDynamicOutputPorts(data?.id ?? '', isConditionNode)
 
     const onNodeLabelChange = () => {
         if (!data || !nodeNameRef.current) return
@@ -47,13 +72,30 @@ function EditNodeDialogComponent({ show, dialogProps, onCancel }: EditNodeDialog
             [inputParam.name]: newValue
         }
 
+        const updatedParams = evaluateFieldVisibility(inputParams, updatedInputValues)
+        setInputParams(updatedParams)
+        setArrayItemParameters(computeArrayItemParameters(inputParams, updatedInputValues))
+
+        // When conditions array changes, merge inputValues and outputAnchors
+        // into a single updateNodeData call to avoid stale-closure overwrites.
+        if (isConditionNode && inputParam.name === 'conditions' && Array.isArray(newValue)) {
+            const outputAnchors = buildDynamicOutputAnchors(data.id, newValue.length, 'Condition', true)
+            updateNodeData(data.id, { inputValues: updatedInputValues, outputAnchors })
+            setData({ ...data, inputValues: updatedInputValues, outputAnchors })
+            cleanupOrphanedEdges(newValue.length)
+            return
+        }
+
         updateNodeData(data.id, { inputValues: updatedInputValues })
         setData({ ...data, inputValues: updatedInputValues })
     }
 
     useEffect(() => {
         if (dialogProps.inputParams) {
-            setInputParams(dialogProps.inputParams)
+            const initialValues = dialogProps.data?.inputValues || {}
+            const evaluatedParams = evaluateFieldVisibility(dialogProps.inputParams, initialValues)
+            setInputParams(evaluatedParams)
+            setArrayItemParameters(computeArrayItemParameters(dialogProps.inputParams, initialValues))
         }
         if (dialogProps.data) {
             setData(dialogProps.data)
@@ -216,16 +258,60 @@ function EditNodeDialogComponent({ show, dialogProps, onCancel }: EditNodeDialog
                 {data &&
                     inputParams
                         .filter((inputParam) => inputParam.display !== false)
-                        .map((inputParam, index) => (
-                            <NodeInputHandler
-                                disabled={dialogProps.disabled}
-                                key={index}
-                                inputParam={inputParam}
-                                data={data}
-                                isAdditionalParams={true}
-                                onDataChange={onCustomDataChange}
-                            />
-                        ))}
+                        .map((inputParam, index) => {
+                            // Render ConditionBuilder for condition node's conditions array
+                            if (isConditionNode && inputParam.type === 'array' && inputParam.name === 'conditions') {
+                                return (
+                                    <ConditionBuilder
+                                        key={index}
+                                        inputParam={inputParam}
+                                        data={data}
+                                        disabled={dialogProps.disabled}
+                                        onDataChange={onCustomDataChange}
+                                        itemParameters={arrayItemParameters[inputParam.name]}
+                                    />
+                                )
+                            }
+
+                            // Render MessagesInput for Agent/LLM message arrays
+                            if (inputParam.type === 'array' && MESSAGE_PARAM_NAMES.has(inputParam.name)) {
+                                return (
+                                    <MessagesInput
+                                        key={index}
+                                        inputParam={inputParam}
+                                        data={data}
+                                        disabled={dialogProps.disabled}
+                                        onDataChange={onCustomDataChange}
+                                    />
+                                )
+                            }
+
+                            // Render StructuredOutputBuilder for Agent/LLM structured output arrays
+                            if (inputParam.type === 'array' && STRUCTURED_OUTPUT_PARAM_NAMES.has(inputParam.name)) {
+                                return (
+                                    <StructuredOutputBuilder
+                                        key={index}
+                                        inputParam={inputParam}
+                                        data={data}
+                                        disabled={dialogProps.disabled}
+                                        onDataChange={onCustomDataChange}
+                                    />
+                                )
+                            }
+
+                            return (
+                                <NodeInputHandler
+                                    disabled={dialogProps.disabled}
+                                    key={index}
+                                    inputParam={inputParam}
+                                    data={data}
+                                    isAdditionalParams={true}
+                                    onDataChange={onCustomDataChange}
+                                    itemParameters={inputParam.type === 'array' ? arrayItemParameters[inputParam.name] : undefined}
+                                    AsyncInputComponent={AsyncInput}
+                                />
+                            )
+                        })}
             </DialogContent>
         </Dialog>
     )
