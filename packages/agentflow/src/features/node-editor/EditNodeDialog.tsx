@@ -1,16 +1,18 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { useUpdateNodeInternals } from 'reactflow'
 
 import { Avatar, Box, ButtonBase, Dialog, DialogContent, Stack, TextField, Typography } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 import { IconCheck, IconInfoCircle, IconPencil, IconX } from '@tabler/icons-react'
 
-import { ConditionBuilder, MessagesInput, NodeInputHandler, StructuredOutputBuilder } from '@/atoms'
+import { ConditionBuilder, MessagesInput, NodeInputHandler, ScenariosInput, StructuredOutputBuilder } from '@/atoms'
 import type { EditDialogProps, InputParam, NodeData } from '@/core/types'
 import { buildDynamicOutputAnchors, evaluateFieldVisibility } from '@/core/utils'
 import { useAgentflowContext, useConfigContext } from '@/infrastructure/store'
 
 import { AsyncInput } from './AsyncInput'
+import { ConfigInput } from './ConfigInput'
+import { useAvailableVariables } from './useAvailableVariables'
 import { useDynamicOutputPorts } from './useDynamicOutputPorts'
 
 /** Array param names that should render as MessagesInput instead of generic ArrayInput. */
@@ -25,12 +27,13 @@ export interface EditNodeDialogProps {
     onCancel: () => void
 }
 
-function computeArrayItemParameters(params: InputParam[], inputValues: Record<string, unknown>): Record<string, InputParam[][]> {
+function computeArrayItemParameters(params: InputParam[], inputs: Record<string, unknown>): Record<string, InputParam[][]> {
     const result: Record<string, InputParam[][]> = {}
     for (const param of params) {
         if (param.type === 'array' && param.array) {
-            const items = (inputValues[param.name] as Record<string, unknown>[]) || []
-            result[param.name] = items.map((_, index) => evaluateFieldVisibility(param.array!, inputValues, index))
+            const raw = inputs[param.name]
+            const items = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
+            result[param.name] = items.map((_, index) => evaluateFieldVisibility(param.array!, inputs, index))
         }
     }
     return result
@@ -53,7 +56,16 @@ function EditNodeDialogComponent({ show, dialogProps, onCancel }: EditNodeDialog
     const [arrayItemParameters, setArrayItemParameters] = useState<Record<string, InputParam[][]>>({})
 
     const isConditionNode = data?.name === 'conditionAgentflow'
-    const { cleanupOrphanedEdges } = useDynamicOutputPorts(data?.id ?? '', isConditionNode)
+    const isConditionAgentNode = data?.name === 'conditionAgentAgentflow'
+    const hasDynamicPorts = isConditionNode || isConditionAgentNode
+    // conditionAgentflow has an Else port; conditionAgentAgentflow does not
+    const includeElse = !isConditionAgentNode
+    const { cleanupOrphanedEdges } = useDynamicOutputPorts(data?.id ?? '', hasDynamicPorts, includeElse)
+    const variableItems = useAvailableVariables(data?.id ?? '')
+
+    // Ref to read current data
+    const dataRef = useRef(data)
+    dataRef.current = data
 
     const onNodeLabelChange = () => {
         if (!data || !nodeNameRef.current) return
@@ -64,11 +76,35 @@ function EditNodeDialogComponent({ show, dialogProps, onCancel }: EditNodeDialog
         updateNodeInternals(data.id)
     }
 
+    const onConfigChange = useCallback(
+        (configKey: string, configValues: Record<string, unknown>, arrayContext?: { parentParamName: string; arrayIndex: number }) => {
+            const current = dataRef.current
+            if (!current) return
+
+            let updatedInputValues: Record<string, unknown>
+
+            if (arrayContext) {
+                // Array-based config: write into the nested array item
+                const currentArray = [...((current.inputs?.[arrayContext.parentParamName] as Record<string, unknown>[]) ?? [])]
+                const updatedItem = { ...(currentArray[arrayContext.arrayIndex] ?? {}), [configKey]: configValues }
+                currentArray[arrayContext.arrayIndex] = updatedItem
+                updatedInputValues = { ...current.inputs, [arrayContext.parentParamName]: currentArray }
+            } else {
+                // Top-level config
+                updatedInputValues = { ...current.inputs, [configKey]: configValues }
+            }
+
+            updateNodeData(current.id, { inputs: updatedInputValues })
+            setData({ ...current, inputs: updatedInputValues })
+        },
+        [updateNodeData]
+    )
+
     const onCustomDataChange = ({ inputParam, newValue }: { inputParam: InputParam; newValue: unknown }) => {
         if (!data) return
 
         const updatedInputValues = {
-            ...data.inputValues,
+            ...data.inputs,
             [inputParam.name]: newValue
         }
 
@@ -76,32 +112,79 @@ function EditNodeDialogComponent({ show, dialogProps, onCancel }: EditNodeDialog
         setInputParams(updatedParams)
         setArrayItemParameters(computeArrayItemParameters(inputParams, updatedInputValues))
 
-        // When conditions array changes, merge inputValues and outputAnchors
-        // into a single updateNodeData call to avoid stale-closure overwrites.
+        // When conditions/scenarios array changes, merge inputs, outputAnchors,
+        // and cleaned edges into a single updateNodeData call so that onFlowChange
+        // fires once with the complete updated state.
         if (isConditionNode && inputParam.name === 'conditions' && Array.isArray(newValue)) {
             const outputAnchors = buildDynamicOutputAnchors(data.id, newValue.length, 'Condition', true)
-            updateNodeData(data.id, { inputValues: updatedInputValues, outputAnchors })
-            setData({ ...data, inputValues: updatedInputValues, outputAnchors })
-            cleanupOrphanedEdges(newValue.length)
+            const cleanedEdges = cleanupOrphanedEdges(newValue.length)
+            updateNodeData(data.id, { inputs: updatedInputValues, outputAnchors }, cleanedEdges)
+            setData({ ...data, inputs: updatedInputValues, outputAnchors })
             return
         }
 
-        updateNodeData(data.id, { inputValues: updatedInputValues })
-        setData({ ...data, inputValues: updatedInputValues })
+        if (isConditionAgentNode && inputParam.name === 'conditionAgentScenarios' && Array.isArray(newValue)) {
+            // ConditionAgent outputs match scenario count exactly (no separate Else port)
+            const outputAnchors = buildDynamicOutputAnchors(data.id, newValue.length, 'Scenario', false)
+            const cleanedEdges = cleanupOrphanedEdges(newValue.length)
+            updateNodeData(data.id, { inputs: updatedInputValues, outputAnchors }, cleanedEdges)
+            setData({ ...data, inputs: updatedInputValues, outputAnchors })
+            return
+        }
+
+        // For credential inputs, also set the top-level `credential` field.
+        // Server-side node execution reads nodeData.credential (not inputs.FLOWISE_CREDENTIAL_ID)
+        // to fetch credential data via getCredentialData(), so both must be kept in sync.
+        if (inputParam.type === 'credential') {
+            const credentialId = typeof newValue === 'string' ? newValue : ''
+            updateNodeData(data.id, { inputs: updatedInputValues, credential: credentialId })
+            setData({ ...data, inputs: updatedInputValues, credential: credentialId })
+            return
+        }
+
+        updateNodeData(data.id, { inputs: updatedInputValues })
+        setData({ ...data, inputs: updatedInputValues })
     }
 
     useEffect(() => {
         if (dialogProps.inputParams) {
-            const initialValues = dialogProps.data?.inputValues || {}
+            // Merge param defaults into inputValues so that fields with show/hide
+            // conditions referencing other fields with defaults evaluate correctly
+            // on first load (e.g., llmEnableMemory defaults to true).
+            const storedValues = dialogProps.data?.inputs || {}
+            const initialValues: Record<string, unknown> = { ...storedValues }
+            for (const param of dialogProps.inputParams) {
+                if (param.default !== undefined && !(param.name in initialValues)) {
+                    initialValues[param.name] = param.default
+                }
+            }
             const evaluatedParams = evaluateFieldVisibility(dialogProps.inputParams, initialValues)
             setInputParams(evaluatedParams)
             setArrayItemParameters(computeArrayItemParameters(dialogProps.inputParams, initialValues))
-        }
-        if (dialogProps.data) {
+
+            // Store data with defaults merged into inputValues so that subsequent
+            // onCustomDataChange calls (e.g., triggered by VariableInput's onUpdate
+            // on mount) preserve the defaults for visibility evaluation.
+            if (dialogProps.data) {
+                setData({ ...dialogProps.data, inputs: initialValues })
+                if (dialogProps.data.label) setNodeName(dialogProps.data.label)
+            }
+        } else if (dialogProps.data) {
             setData(dialogProps.data)
             if (dialogProps.data.label) setNodeName(dialogProps.data.label)
         }
     }, [dialogProps])
+
+    // Reset state when dialog closes so the next node opens with clean state
+    useEffect(() => {
+        if (!show) {
+            setData(null)
+            setInputParams([])
+            setArrayItemParameters({})
+            setNodeName('')
+            setEditingNodeName(false)
+        }
+    }, [show])
 
     if (!show) return null
 
@@ -269,6 +352,20 @@ function EditNodeDialogComponent({ show, dialogProps, onCancel }: EditNodeDialog
                                         disabled={dialogProps.disabled}
                                         onDataChange={onCustomDataChange}
                                         itemParameters={arrayItemParameters[inputParam.name]}
+                                        variableItems={variableItems}
+                                    />
+                                )
+                            }
+
+                            // Render ScenariosInput for condition agent's scenarios array
+                            if (isConditionAgentNode && inputParam.type === 'array' && inputParam.name === 'conditionAgentScenarios') {
+                                return (
+                                    <ScenariosInput
+                                        key={index}
+                                        inputParam={inputParam}
+                                        data={data}
+                                        disabled={dialogProps.disabled}
+                                        onDataChange={onCustomDataChange}
                                     />
                                 )
                             }
@@ -281,6 +378,7 @@ function EditNodeDialogComponent({ show, dialogProps, onCancel }: EditNodeDialog
                                         inputParam={inputParam}
                                         data={data}
                                         disabled={dialogProps.disabled}
+                                        variableItems={variableItems}
                                         onDataChange={onCustomDataChange}
                                     />
                                 )
@@ -309,6 +407,9 @@ function EditNodeDialogComponent({ show, dialogProps, onCancel }: EditNodeDialog
                                     onDataChange={onCustomDataChange}
                                     itemParameters={inputParam.type === 'array' ? arrayItemParameters[inputParam.name] : undefined}
                                     AsyncInputComponent={AsyncInput}
+                                    ConfigInputComponent={ConfigInput}
+                                    onConfigChange={onConfigChange}
+                                    variableItems={inputParam.acceptVariable ? variableItems : undefined}
                                 />
                             )
                         })}

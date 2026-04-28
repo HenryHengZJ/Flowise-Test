@@ -247,10 +247,16 @@ export const resolveVariables = async (
         // If value is not a string, return as is
         if (typeof value !== 'string') return value
 
-        const turndownService = new TurndownService()
-        value = turndownService.turndown(value)
-        // After conversion, replace any escaped underscores with regular underscores
-        value = value.replace(/\\_/g, '_')
+        // Convert legacy HTML content to markdown, preserving any markdown syntax within.
+        // Legacy content from old getHTML() starts with a TipTap block tag (e.g. <p>text</p>).
+        // Anchor with ^ to avoid matching intentional HTML/XML tags in user prompts
+        // (e.g. <instruction><div>...</div></instruction>).
+        if (/^\s*<(?:p|div|h[1-6]|ul|ol|blockquote|pre|table)\b/i.test(value)) {
+            const turndownService = new TurndownService()
+            // Disable escaping so markdown characters (e.g. ###, -, *) inside HTML are preserved as-is
+            turndownService.escape = (str: string) => str
+            value = turndownService.turndown(value)
+        }
 
         const matches = value.match(/{{(.*?)}}/g)
 
@@ -1103,10 +1109,11 @@ const executeNode = async ({
             Object.keys(iterationContext.agentflowRuntime.state).length > 0
         ) {
             updatedState = {
-                ...updatedState,
-                ...iterationContext.agentflowRuntime.state
+                ...iterationContext.agentflowRuntime.state,
+                ...updatedState
             }
             flowConfig.state = updatedState
+            agentflowRuntime.state = updatedState
         }
 
         // Resolve variables in node data
@@ -1156,7 +1163,7 @@ const executeNode = async ({
             !isRecursive &&
             (!graph[nodeId] || graph[nodeId].length === 0 || (!humanInput && reactFlowNode.data.name === 'humanInputAgentflow'))
 
-        if (incomingInput.question && incomingInput.form) {
+        if (incomingInput.question && isObjectNotEmpty(incomingInput.form)) {
             throw new Error('Question and form cannot be provided at the same time')
         }
 
@@ -1164,7 +1171,7 @@ const executeNode = async ({
         if (incomingInput.question) {
             // Prepare final question with uploaded content if any
             finalInput = uploadedFilesContent ? `${uploadedFilesContent}\n\n${incomingInput.question}` : incomingInput.question
-        } else if (incomingInput.form) {
+        } else if (isObjectNotEmpty(incomingInput.form)) {
             finalInput = Object.entries(incomingInput.form || {})
                 .map(([key, value]) => `${key}: ${value}`)
                 .join('\n')
@@ -1505,6 +1512,7 @@ export const executeAgentFlow = async ({
     parentExecutionId,
     iterationContext,
     isTool = false,
+    chatType,
     orgId,
     workspaceId,
     subscriptionId,
@@ -2254,7 +2262,7 @@ export const executeAgentFlow = async ({
         role: 'userMessage',
         content: finalUserInput,
         chatflowid,
-        chatType: evaluationRunId ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL,
+        chatType: chatType || (evaluationRunId ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL),
         chatId,
         sessionId,
         createdDate: userMessageDateTime,
@@ -2269,7 +2277,7 @@ export const executeAgentFlow = async ({
         role: 'apiMessage',
         content: content,
         chatflowid,
-        chatType: evaluationRunId ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL,
+        chatType: chatType || (evaluationRunId ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL),
         chatId,
         sessionId,
         executionId: newExecution.id
@@ -2324,6 +2332,7 @@ export const executeAgentFlow = async ({
     result.followUpPrompts = JSON.stringify(apiMessage.followUpPrompts)
     result.executionId = newExecution.id
     result.agentFlowExecutedData = agentFlowExecutedData
+    if (apiMessage.action) result.action = JSON.parse(apiMessage.action)
 
     if (sessionId) result.sessionId = sessionId
 

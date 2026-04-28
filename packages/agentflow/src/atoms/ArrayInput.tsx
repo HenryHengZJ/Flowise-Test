@@ -1,12 +1,39 @@
-import { type ComponentType, useCallback, useEffect, useMemo, useRef } from 'react'
+import { type ComponentType, useCallback, useMemo } from 'react'
 
 import { Box, Button, Chip, IconButton } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 import { IconPlus, IconTrash } from '@tabler/icons-react'
 
+import { getDefaultValueForType } from '@/core/primitives'
 import type { InputParam, NodeData } from '@/core/types'
 
-import { type AsyncInputProps, NodeInputHandler } from './NodeInputHandler'
+import { type AsyncInputProps, type ConfigInputComponentProps, NodeInputHandler } from './NodeInputHandler'
+import { useStableKeys } from './useStableKeys'
+import type { VariableItem } from './VariablePicker'
+
+/**
+ * Builds VariableItems representing the current node's own output.
+ * Added when a nested sub-field declares `acceptNodeOutputAsVariable: true`,
+ * matching the v2 suggestionOption behaviour where `{{output}}` and
+ * `{{output.<key>}}` appear for structured-output fields.
+ */
+function buildNodeOutputVariables(data: NodeData): VariableItem[] {
+    const vars: VariableItem[] = [
+        { label: 'output', description: 'Output from the current node', category: 'Node Outputs', value: '{{output}}' }
+    ]
+    const structured = (
+        (data.inputs?.agentStructuredOutput ?? data.inputs?.llmStructuredOutput ?? []) as Array<{ key: string; description?: string }>
+    ).filter((item) => item?.key)
+    for (const item of structured) {
+        vars.push({
+            label: `output.${item.key}`,
+            description: item.description ?? `Structured output field: ${item.key}`,
+            category: 'Node Outputs',
+            value: `{{output.${item.key}}}`
+        })
+    }
+    return vars
+}
 
 export interface ArrayInputProps {
     inputParam: InputParam
@@ -15,6 +42,14 @@ export interface ArrayInputProps {
     onDataChange?: (params: { inputParam: InputParam; newValue: unknown }) => void
     itemParameters?: InputParam[][]
     AsyncInputComponent?: ComponentType<AsyncInputProps>
+    ConfigInputComponent?: ComponentType<ConfigInputComponentProps>
+    onConfigChange?: (
+        configKey: string,
+        configValues: Record<string, unknown>,
+        arrayContext?: { parentParamName: string; arrayIndex: number }
+    ) => void
+    /** Variable items passed through to sub-field NodeInputHandlers for {{ autocomplete. */
+    variableItems?: VariableItem[]
 }
 
 export function ArrayInput({
@@ -23,27 +58,21 @@ export function ArrayInput({
     disabled = false,
     onDataChange,
     itemParameters: itemParametersProp,
-    AsyncInputComponent
+    AsyncInputComponent,
+    ConfigInputComponent,
+    onConfigChange,
+    variableItems
 }: ArrayInputProps) {
     const theme = useTheme()
 
     // Derive array items directly from props (single source of truth)
     // Memoized to prevent unnecessary re-renders of child hooks
     const arrayItems = useMemo(
-        () => (Array.isArray(data.inputValues?.[inputParam.name]) ? (data.inputValues[inputParam.name] as Record<string, unknown>[]) : []),
-        [data.inputValues, inputParam.name]
+        () => (Array.isArray(data.inputs?.[inputParam.name]) ? (data.inputs[inputParam.name] as Record<string, unknown>[]) : []),
+        [data.inputs, inputParam.name]
     )
 
-    // Stable keys for array items — avoids using index as React key
-    const idCounterRef = useRef(0)
-    const itemKeysRef = useRef<string[]>([])
-
-    // Grow keys array when new items appear (e.g. on mount or external data changes)
-    useEffect(() => {
-        while (itemKeysRef.current.length < arrayItems.length) {
-            itemKeysRef.current.push(`item-${idCounterRef.current++}`)
-        }
-    }, [arrayItems.length])
+    const { keys: effectiveKeys, removeKey } = useStableKeys(arrayItems.length, 'item')
 
     // Use pre-computed itemParameters
     // Falls back to raw field definitions for nested arrays without show/hide conditions.
@@ -75,23 +104,7 @@ export function ArrayInput({
 
         if (inputParam.array) {
             for (const field of inputParam.array) {
-                if (field.default !== undefined) {
-                    newItem[field.name] = field.default
-                } else {
-                    switch (field.type) {
-                        case 'number':
-                            newItem[field.name] = 0
-                            break
-                        case 'boolean':
-                            newItem[field.name] = false
-                            break
-                        case 'array':
-                            newItem[field.name] = []
-                            break
-                        default:
-                            newItem[field.name] = ''
-                    }
-                }
+                newItem[field.name] = getDefaultValueForType(field)
             }
         }
 
@@ -105,12 +118,12 @@ export function ArrayInput({
     const handleDeleteItem = useCallback(
         (indexToDelete: number) => {
             const updatedArrayItems = arrayItems.filter((_, i) => i !== indexToDelete)
-            itemKeysRef.current.splice(indexToDelete, 1)
+            removeKey(indexToDelete)
 
             // Notify parent of change (parent will update props, causing re-render)
             onDataChange?.({ inputParam, newValue: updatedArrayItems })
         },
-        [arrayItems, inputParam, onDataChange]
+        [arrayItems, inputParam, onDataChange, removeKey]
     )
 
     // Pre-compute stable per-item onDataChange handlers to avoid new closures on every render
@@ -129,21 +142,24 @@ export function ArrayInput({
         <>
             {/* Render each array item */}
             {arrayItems.map((itemValues, index) => {
-                // Create item-specific data context for nested NodeInputHandler
+                // Create item-specific data context for nested NodeInputHandler.
+                // Merge parent inputs first so async load methods (e.g. listToolInputArgs)
+                // can read parent-level fields like toolAgentflowSelectedTool, while
+                // item-level fields take precedence via the spread order.
                 const itemData: NodeData = {
                     ...data,
-                    inputValues: itemValues
+                    inputs: { ...data.inputs, ...itemValues }
                 }
 
                 return (
                     <Box
-                        key={itemKeysRef.current[index]}
+                        key={effectiveKeys[index]}
                         sx={{
                             p: 2,
                             mt: 2,
                             mb: 1,
                             border: 1,
-                            borderColor: theme.palette.grey[300],
+                            borderColor: theme.palette.divider,
                             borderRadius: 2,
                             position: 'relative'
                         }}
@@ -185,6 +201,17 @@ export function ArrayInput({
                                     disablePadding={false}
                                     onDataChange={itemHandlers[index]}
                                     AsyncInputComponent={AsyncInputComponent}
+                                    ConfigInputComponent={ConfigInputComponent}
+                                    onConfigChange={onConfigChange}
+                                    arrayIndex={index}
+                                    parentArrayParam={inputParam}
+                                    variableItems={
+                                        param.acceptVariable
+                                            ? param.acceptNodeOutputAsVariable
+                                                ? [...buildNodeOutputVariables(data), ...(variableItems ?? [])]
+                                                : variableItems
+                                            : undefined
+                                    }
                                 />
                             ))}
                     </Box>
@@ -197,7 +224,7 @@ export function ArrayInput({
                 size='small'
                 variant='outlined'
                 disabled={disabled}
-                sx={{ borderRadius: '16px', mt: 2 }}
+                sx={{ borderRadius: '16px', mt: 1 }}
                 startIcon={<IconPlus />}
                 onClick={handleAddItem}
             >

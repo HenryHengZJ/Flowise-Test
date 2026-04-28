@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import type { InputParam, NodeData } from '@/core/types'
 
 import { ArrayInput } from './ArrayInput'
+import type { VariableItem } from './VariablePicker'
 
 // --- Mocks ---
 const mockOnDataChange = jest.fn()
@@ -10,13 +11,20 @@ const mockOnDataChange = jest.fn()
 jest.mock('./NodeInputHandler', () => ({
     NodeInputHandler: ({
         inputParam,
-        onDataChange
+        data,
+        onDataChange,
+        variableItems
     }: {
         inputParam: InputParam
         data: NodeData
         onDataChange: (args: { inputParam: InputParam; newValue: unknown }) => void
+        variableItems?: VariableItem[]
     }) => (
-        <div data-testid={`input-handler-${inputParam.name}`}>
+        <div
+            data-testid={`input-handler-${inputParam.name}`}
+            data-inputs={JSON.stringify(data.inputs)}
+            data-variable-items={variableItems ? JSON.stringify(variableItems.map((v) => v.value)) : undefined}
+        >
             <label>{inputParam.label}</label>
             <input data-testid={`input-${inputParam.name}`} onChange={(e) => onDataChange({ inputParam, newValue: e.target.value })} />
         </div>
@@ -44,7 +52,7 @@ describe('ArrayInput', () => {
         id: 'node-1',
         name: 'testNode',
         label: 'Test Node',
-        inputValues: {}
+        inputs: {}
     } as NodeData
 
     beforeEach(() => {
@@ -55,7 +63,7 @@ describe('ArrayInput', () => {
     it('should render existing items correctly', () => {
         const dataWithItems: NodeData = {
             ...mockNodeData,
-            inputValues: {
+            inputs: {
                 testArray: [
                     { field1: 'value1', field2: 10 },
                     { field1: 'value2', field2: 20 }
@@ -101,7 +109,7 @@ describe('ArrayInput', () => {
     it('should delete item and verify item removed from array', () => {
         const dataWithItems: NodeData = {
             ...mockNodeData,
-            inputValues: {
+            inputs: {
                 testArray: [
                     { field1: 'value1', field2: 10 },
                     { field1: 'value2', field2: 20 }
@@ -128,7 +136,7 @@ describe('ArrayInput', () => {
     it('should handle nested field changes and update parent array', () => {
         const dataWithItems: NodeData = {
             ...mockNodeData,
-            inputValues: {
+            inputs: {
                 testArray: [{ field1: 'initial', field2: 5 }]
             }
         } as NodeData
@@ -161,7 +169,7 @@ describe('ArrayInput', () => {
     it('should disable buttons when disabled prop is true', () => {
         const dataWithItems: NodeData = {
             ...mockNodeData,
-            inputValues: {
+            inputs: {
                 testArray: [{ field1: 'value1', field2: 10 }]
             }
         } as NodeData
@@ -189,7 +197,7 @@ describe('ArrayInput', () => {
 
         const dataWithItems: NodeData = {
             ...mockNodeData,
-            inputValues: {
+            inputs: {
                 testArray: [{ visible: 'test', hidden: 'should-not-show' }]
             }
         } as NodeData
@@ -207,7 +215,7 @@ describe('ArrayInput', () => {
     it('should render multiple items with correct indices', () => {
         const dataWithMultipleItems: NodeData = {
             ...mockNodeData,
-            inputValues: {
+            inputs: {
                 testArray: [
                     { field1: 'item1', field2: 1 },
                     { field1: 'item2', field2: 2 },
@@ -265,7 +273,7 @@ describe('ArrayInput', () => {
 
         const dataWithItems: NodeData = {
             ...mockNodeData,
-            inputValues: {
+            inputs: {
                 testArray: [
                     { field1: 'value1', field2: 10 },
                     { field1: 'value2', field2: 20 }
@@ -302,16 +310,149 @@ describe('ArrayInput', () => {
 
         expect(mockOnDataChange).toHaveBeenCalledWith({
             inputParam: inputParamWithTypes,
-            newValue: [{ str: '', num: 0, bool: false, arr: [] }]
+            newValue: [{ str: '', num: '', bool: false, arr: [] }]
         })
     })
 
-    // Test 12: itemParameters prop overrides inputParam.array display flags
+    // Test 12: Nested array sub-fields render recursively
+    it('should render nested array sub-fields (e.g., addOptions inside formInputTypes)', () => {
+        const nestedArrayParam: InputParam = {
+            id: 'formInputTypes',
+            name: 'formInputTypes',
+            label: 'Form Input Type',
+            type: 'array',
+            array: [
+                { id: 'type', name: 'type', label: 'Type', type: 'options', default: 'string' } as InputParam,
+                { id: 'label', name: 'label', label: 'Label', type: 'string' } as InputParam,
+                {
+                    id: 'addOptions',
+                    name: 'addOptions',
+                    label: 'Add Options',
+                    type: 'array',
+                    display: true,
+                    array: [{ id: 'option', name: 'option', label: 'Option', type: 'string' } as InputParam]
+                } as InputParam
+            ]
+        }
+
+        const dataWithNestedArray: NodeData = {
+            ...mockNodeData,
+            inputs: {
+                formInputTypes: [
+                    {
+                        type: 'options',
+                        label: 'Color',
+                        addOptions: [{ option: 'Red' }, { option: 'Blue' }]
+                    }
+                ]
+            }
+        } as NodeData
+
+        render(<ArrayInput inputParam={nestedArrayParam} data={dataWithNestedArray} onDataChange={mockOnDataChange} />)
+
+        // The parent array item renders
+        expect(screen.getByText('0')).toBeInTheDocument()
+
+        // The nested array sub-field (addOptions) is rendered via NodeInputHandler
+        // Since our mock NodeInputHandler renders a div with data-testid, the addOptions field should appear
+        expect(screen.getByTestId('input-handler-addOptions')).toBeInTheDocument()
+    })
+
+    it('should hide nested array sub-fields when display is false', () => {
+        const nestedArrayParam: InputParam = {
+            id: 'formInputTypes',
+            name: 'formInputTypes',
+            label: 'Form Input Type',
+            type: 'array',
+            array: [
+                { id: 'type', name: 'type', label: 'Type', type: 'options' } as InputParam,
+                {
+                    id: 'addOptions',
+                    name: 'addOptions',
+                    label: 'Add Options',
+                    type: 'array',
+                    display: false,
+                    array: [{ id: 'option', name: 'option', label: 'Option', type: 'string' } as InputParam]
+                } as InputParam
+            ]
+        }
+
+        const dataWithNestedArray: NodeData = {
+            ...mockNodeData,
+            inputs: {
+                formInputTypes: [{ type: 'string', label: 'Name' }]
+            }
+        } as NodeData
+
+        render(<ArrayInput inputParam={nestedArrayParam} data={dataWithNestedArray} onDataChange={mockOnDataChange} />)
+
+        expect(screen.getByTestId('input-handler-type')).toBeInTheDocument()
+        expect(screen.queryByTestId('input-handler-addOptions')).not.toBeInTheDocument()
+    })
+
+    it('should use itemParameters to control nested array visibility per row', () => {
+        const nestedArrayParam: InputParam = {
+            id: 'formInputTypes',
+            name: 'formInputTypes',
+            label: 'Form Input Type',
+            type: 'array',
+            array: [
+                { id: 'type', name: 'type', label: 'Type', type: 'options' } as InputParam,
+                {
+                    id: 'addOptions',
+                    name: 'addOptions',
+                    label: 'Add Options',
+                    type: 'array',
+                    array: [{ id: 'option', name: 'option', label: 'Option', type: 'string' } as InputParam]
+                } as InputParam
+            ]
+        }
+
+        const dataWithTwoRows: NodeData = {
+            ...mockNodeData,
+            inputs: {
+                formInputTypes: [
+                    { type: 'options', label: 'Color', addOptions: [{ option: 'Red' }] },
+                    { type: 'string', label: 'Name' }
+                ]
+            }
+        } as NodeData
+
+        // Row 0: addOptions visible (type = options)
+        // Row 1: addOptions hidden (type = string)
+        const itemParameters: InputParam[][] = [
+            [
+                { id: 'type', name: 'type', label: 'Type', type: 'options', display: true } as InputParam,
+                { id: 'addOptions', name: 'addOptions', label: 'Add Options', type: 'array', display: true } as InputParam
+            ],
+            [
+                { id: 'type', name: 'type', label: 'Type', type: 'options', display: true } as InputParam,
+                { id: 'addOptions', name: 'addOptions', label: 'Add Options', type: 'array', display: false } as InputParam
+            ]
+        ]
+
+        render(
+            <ArrayInput
+                inputParam={nestedArrayParam}
+                data={dataWithTwoRows}
+                onDataChange={mockOnDataChange}
+                itemParameters={itemParameters}
+            />
+        )
+
+        // Both rows show their Type field
+        expect(screen.getAllByTestId('input-handler-type')).toHaveLength(2)
+
+        // Only row 0 shows addOptions (row 1 has display: false)
+        expect(screen.getAllByTestId('input-handler-addOptions')).toHaveLength(1)
+    })
+
+    // Test 13: itemParameters prop overrides inputParam.array display flags
     it('should use itemParameters prop for field visibility when provided, ignoring inputParam.array display flags', () => {
         // inputParam.array has both fields with no display flag (both would show)
         const dataWithItem: NodeData = {
             ...mockNodeData,
-            inputValues: { testArray: [{ field1: 'value', field2: 10 }] }
+            inputs: { testArray: [{ field1: 'value', field2: 10 }] }
         } as NodeData
 
         // Parent (EditNodeDialog) has evaluated field2 as hidden
@@ -341,7 +482,7 @@ describe('ArrayInput', () => {
 
         const dataWithOneItem: NodeData = {
             ...mockNodeData,
-            inputValues: {
+            inputs: {
                 testArray: [{ field1: 'value1', field2: 10 }]
             }
         } as NodeData
@@ -351,5 +492,164 @@ describe('ArrayInput', () => {
         // Delete button should be disabled when at minItems limit
         const deleteButton = screen.getByTitle('Delete')
         expect(deleteButton).toBeDisabled()
+    })
+
+    // Parent inputs are merged into itemData so async load methods inside array items
+    // (e.g. listToolInputArgs) can access parent-level fields like toolAgentflowSelectedTool.
+    it('should merge parent node inputs into itemData so async options inside array items can access parent fields', () => {
+        const dataWithParentField: NodeData = {
+            ...mockNodeData,
+            inputs: {
+                toolAgentflowSelectedTool: 'calculator',
+                toolInputArgs: [{ inputArgName: '', inputArgValue: '' }]
+            }
+        } as NodeData
+
+        const toolInputArgsParam: InputParam = {
+            id: 'toolInputArgs',
+            name: 'toolInputArgs',
+            label: 'Tool Input Arguments',
+            type: 'array',
+            array: [
+                { id: 'inputArgName', name: 'inputArgName', label: 'Input Argument Name', type: 'asyncOptions' } as InputParam,
+                { id: 'inputArgValue', name: 'inputArgValue', label: 'Input Argument Value', type: 'string' } as InputParam
+            ]
+        }
+
+        render(<ArrayInput inputParam={toolInputArgsParam} data={dataWithParentField} onDataChange={mockOnDataChange} />)
+
+        const argNameHandler = screen.getByTestId('input-handler-inputArgName')
+        const inputs = JSON.parse(argNameHandler.getAttribute('data-inputs') ?? '{}')
+
+        // The parent-level field must be visible to the array item's async input
+        expect(inputs.toolAgentflowSelectedTool).toBe('calculator')
+        // The item's own fields are also present
+        expect(inputs.inputArgName).toBe('')
+    })
+})
+
+// ── acceptNodeOutputAsVariable in ArrayInput ────────────────────────────────
+
+describe('ArrayInput – acceptNodeOutputAsVariable', () => {
+    const baseVariableItems: VariableItem[] = [
+        { label: 'question', description: "User's question", category: 'Chat Context', value: '{{question}}' }
+    ]
+
+    it('prepends {{output}} to variableItems when nested param has acceptNodeOutputAsVariable', () => {
+        const inputParam: InputParam = {
+            id: 'updateState',
+            name: 'agentUpdateState',
+            label: 'Update State',
+            type: 'array',
+            acceptVariable: true,
+            array: [
+                { id: 'key', name: 'key', label: 'Key', type: 'string' } as InputParam,
+                {
+                    id: 'value',
+                    name: 'value',
+                    label: 'Value',
+                    type: 'string',
+                    acceptVariable: true,
+                    acceptNodeOutputAsVariable: true
+                } as InputParam
+            ]
+        }
+
+        const data: NodeData = {
+            id: 'node-1',
+            name: 'agentNode',
+            label: 'Agent',
+            inputs: { agentUpdateState: [{ key: 'myKey', value: '' }] }
+        } as NodeData
+
+        render(<ArrayInput inputParam={inputParam} data={data} onDataChange={mockOnDataChange} variableItems={baseVariableItems} />)
+
+        const valueHandler = screen.getByTestId('input-handler-value')
+        const passedItems: string[] = JSON.parse(valueHandler.getAttribute('data-variable-items') ?? '[]')
+        expect(passedItems[0]).toBe('{{output}}')
+        expect(passedItems).toContain('{{question}}')
+    })
+
+    it('does NOT prepend {{output}} when nested param lacks acceptNodeOutputAsVariable', () => {
+        const inputParam: InputParam = {
+            id: 'updateState',
+            name: 'agentUpdateState',
+            label: 'Update State',
+            type: 'array',
+            acceptVariable: true,
+            array: [{ id: 'value', name: 'value', label: 'Value', type: 'string', acceptVariable: true } as InputParam]
+        }
+
+        const data: NodeData = {
+            id: 'node-1',
+            name: 'agentNode',
+            label: 'Agent',
+            inputs: { agentUpdateState: [{ value: '' }] }
+        } as NodeData
+
+        render(<ArrayInput inputParam={inputParam} data={data} onDataChange={mockOnDataChange} variableItems={baseVariableItems} />)
+
+        const valueHandler = screen.getByTestId('input-handler-value')
+        const passedItems: string[] = JSON.parse(valueHandler.getAttribute('data-variable-items') ?? '[]')
+        expect(passedItems).not.toContain('{{output}}')
+        expect(passedItems).toContain('{{question}}')
+    })
+
+    it('includes structured output fields in prepended variables', () => {
+        const inputParam: InputParam = {
+            id: 'updateState',
+            name: 'agentUpdateState',
+            label: 'Update State',
+            type: 'array',
+            array: [
+                {
+                    id: 'value',
+                    name: 'value',
+                    label: 'Value',
+                    type: 'string',
+                    acceptVariable: true,
+                    acceptNodeOutputAsVariable: true
+                } as InputParam
+            ]
+        }
+
+        const data: NodeData = {
+            id: 'node-1',
+            name: 'agentNode',
+            label: 'Agent',
+            inputs: {
+                agentUpdateState: [{ value: '' }],
+                agentStructuredOutput: [{ key: 'sentiment', description: 'Sentiment score' }]
+            }
+        } as NodeData
+
+        render(<ArrayInput inputParam={inputParam} data={data} onDataChange={mockOnDataChange} variableItems={baseVariableItems} />)
+
+        const valueHandler = screen.getByTestId('input-handler-value')
+        const passedItems: string[] = JSON.parse(valueHandler.getAttribute('data-variable-items') ?? '[]')
+        expect(passedItems).toContain('{{output}}')
+        expect(passedItems).toContain('{{output.sentiment}}')
+    })
+
+    it('does not pass variableItems when nested param has no acceptVariable', () => {
+        const inputParam: InputParam = {
+            id: 'updateState',
+            name: 'agentUpdateState',
+            label: 'Update State',
+            type: 'array',
+            array: [{ id: 'key', name: 'key', label: 'Key', type: 'string', acceptNodeOutputAsVariable: true } as InputParam]
+        }
+
+        const data: NodeData = {
+            id: 'node-1',
+            name: 'agentNode',
+            label: 'Agent',
+            inputs: { agentUpdateState: [{ key: '' }] }
+        } as NodeData
+
+        render(<ArrayInput inputParam={inputParam} data={data} onDataChange={mockOnDataChange} variableItems={baseVariableItems} />)
+
+        const keyHandler = screen.getByTestId('input-handler-key')
+        expect(keyHandler.getAttribute('data-variable-items')).toBeNull()
     })
 })

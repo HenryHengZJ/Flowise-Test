@@ -5,21 +5,42 @@
 
 > Embeddable React component for building and visualizing AI agent workflows
 
-## ⚠️ Status
+## Status: Dev
 
-**This package is currently under active development.**
+**Current version: `0.0.0-dev.13`**
 
--   🚧 Components are not yet fully functional
--   ❌ End-to-end functionality is not complete
--   🔄 Features are still being implemented and tested
--   ⚡ APIs may change before stable release
--   📝 Documentation is being updated as development progresses
+This package is functional and has comprehensive test coverage, but the public API may still change before a stable release. It is suitable for early integration and testing but not yet recommended for production use.
 
-**Cannot be used in production. For development and testing purposes only.**
+**What works today:**
+
+-   13 node types with full editing support (Loop and Human Input nodes are present in the palette but not yet fully verified end-to-end)
+-   Connection validation, flow validation, and export
+-   Async option loading (models, credentials, tools)
+-   Variable picker and field visibility conditions
+-   AI flow generation from natural language
+-   Dark/light mode theming
+-   Read-only mode and custom rendering via render props
 
 ## Overview
 
 `@flowiseai/agentflow` is a React-based flow editor for creating AI agent workflows. It provides a visual canvas built on ReactFlow for connecting AI agents, LLMs, tools, and logic nodes.
+
+## Features
+
+-   **Visual Canvas** — Drag-and-drop flow editor built on ReactFlow with zoom, pan, minimap, and fit-to-view controls
+-   **13 Built-in Node Types** — Start, Agent, LLM, Condition, Condition Agent, Direct Reply, Custom Function, Tool, Retriever, Sticky Note, HTTP, Iteration, and Execute Flow
+-   **Node Editor Dialog** — Modal for editing node parameters with dynamic input types (text, number, boolean, dropdown, arrays, JSON, code, variable selector, async options)
+-   **Credential Management** — Create and edit credentials inline from the node editor
+-   **Rich Text Editor** — TipTap-based editor with syntax highlighting for JavaScript, TypeScript, Python, and JSON (lazy-loaded)
+-   **Specialized Input Components** — Condition builder, messages input (role + content), and structured output schema builder
+-   **AI Flow Generator** — Generate flows from natural language descriptions with model selection
+-   **Flow Validation** — Detects empty flows, missing start nodes, disconnected nodes, cycles, hanging edges, and per-node input errors with visual feedback
+-   **Dark Mode** — Full light/dark theme support via design tokens and CSS variables
+-   **Read-Only Mode** — Disable editing for view-only embedding
+-   **Custom Rendering** — Replace the default header and node palette with your own components via render props
+-   **Imperative API** — Programmatic control via ref (`getFlow`, `validate`, `fitView`, `clear`, `addNode`, `toJSON`)
+-   **Request Interceptor** — Customize outgoing API requests (headers, credentials) via an Axios interceptor callback
+-   **Keyboard Shortcuts** — Cmd/Ctrl+S to save
 
 ## Installation
 
@@ -46,7 +67,7 @@ export default function App() {
             <Agentflow apiBaseUrl='http://localhost:3000' token='your-api-key' />
         </div>
     )
-}
+}
 ```
 
 ### With Initial Flow Data and Callbacks
@@ -93,8 +114,24 @@ export default function App() {
             />
         </div>
     )
-}
+}
 ```
+
+### More Examples
+
+The [examples app](./examples/README.md) includes working demos for:
+
+-   **Variable usage** — `{{variable}}` syntax, variable picker, available sources
+-   **Async options** — Loading models, tools, and credentials from the API
+-   **Status indicators** — Node execution states (running, finished, error, stopped)
+-   **Field visibility** — Show/hide conditions on node inputs
+-   **State management** — Dirty tracking, flow change callbacks
+-   **Dark mode** — Light/dark theme toggle
+-   **Custom UI** — Custom header and node palette via render props
+-   **Filtered components** — Restricting available node types with presets
+-   **Validation actions** — Validation button, error display, and custom `canvasActions` alongside built-in controls
+
+Run `cd examples && npm install && npm run dev` to try them locally.
 
 ## Props
 
@@ -105,6 +142,7 @@ export default function App() {
 | `token`              | `string`                                   | —              | Authentication token for API calls                              |
 | `requestInterceptor` | `(config: InternalAxiosRequestConfig) => InternalAxiosRequestConfig` | — | Customize outgoing API requests (e.g., set `withCredentials`, add headers). The callback receives the full Axios request config — only modify what you need. See [Security: requestInterceptor](#security-requestinterceptor) below. |
 | `initialFlow`        | `FlowData`                                 | —              | Initial flow data to render (uncontrolled — only used on mount) |
+| `flowId`             | `string`                                   | —              | Flow identifier (reserved for future use)                       |
 | `components`         | `string[]`                                 | —              | Restrict which node types appear in the palette                 |
 | `onFlowChange`       | `(flow: FlowData) => void`                 | —              | Called when the flow changes (node/edge add, remove, move)      |
 | `onSave`             | `(flow: FlowData) => void`                 | —              | Called when the user triggers a save                            |
@@ -114,6 +152,7 @@ export default function App() {
 | `showDefaultHeader`  | `boolean`                                  | `true`         | Show built-in header (ignored if `renderHeader` provided)       |
 | `showDefaultPalette` | `boolean`                                  | `true`         | Show built-in node palette                                      |
 | `enableGenerator`    | `boolean`                                  | `true`         | Show the AI flow generator button                               |
+| `canvasActions`      | `ReactNode`                                | —              | Additional content rendered in the top-right canvas overlay, to the right of the built-in validation FAB. Hidden when `readOnly` is true. |
 | `renderHeader`       | `(props: HeaderRenderProps) => ReactNode`  | —              | Custom header renderer                                          |
 | `renderNodePalette`  | `(props: PaletteRenderProps) => ReactNode` | —              | Custom node palette renderer                                    |
 
@@ -139,6 +178,27 @@ The `requestInterceptor` callback runs inside the Axios request pipeline and has
 -   Follow the **principle of least privilege** — only read or modify the specific config properties you need (e.g., `withCredentials`, custom headers).
 -   If the interceptor throws, the error is caught, logged, and the **original unmodified config** is used so the request still proceeds safely.
 
+### Node Types
+
+The following node types are available in the palette by default. Use the `components` prop to restrict which types are shown.
+
+<!-- prettier-ignore -->
+| Node Type                  | Description                          |
+| -------------------------- | ------------------------------------ |
+| `startAgentflow`           | Entry point (required, always shown) |
+| `agentAgentflow`           | AI agent execution                   |
+| `llmAgentflow`             | LLM / language model call            |
+| `conditionAgentflow`       | Conditional branching                |
+| `conditionAgentAgentflow`  | Agent-level conditional branching    |
+| `directReplyAgentflow`     | Direct response to user              |
+| `customFunctionAgentflow`  | Custom JavaScript function           |
+| `toolAgentflow`            | Tool integration                     |
+| `retrieverAgentflow`       | Data retrieval                       |
+| `stickyNoteAgentflow`      | Canvas annotation (not connectable)  |
+| `httpAgentflow`            | HTTP request                         |
+| `iterationAgentflow`       | Iteration / map-reduce container     |
+| `executeFlowAgentflow`     | Execute a sub-flow                   |
+
 ### Design Note
 
 `<Agentflow>` is an **uncontrolled component**. The `initialFlow` prop seeds the canvas state on mount, but the component owns its own state afterward. Use the `ref` for imperative access and `onFlowChange` to observe changes.
@@ -161,44 +221,35 @@ cd examples && pnpm install && pnpm dev
 
 Visit the [examples](./examples) directory for more usage patterns. See [TESTS.md](./TESTS.md) for the full test plan and coverage status.
 
-## Publishing
+## Troubleshooting
 
-### Version Update
+### API Connection Issues
 
-Bump the version in `package.json` before publishing. Use `npm version` to update the version and create a git tag:
+-   **CORS errors** — Ensure the Flowise server allows requests from your app's origin. Check the Flowise CORS configuration.
+-   **401 Unauthorized** — Use an API Key (Settings > API Keys), not a JWT user token. Verify the key is passed via the `token` prop.
+-   **Wrong `apiBaseUrl`** — The URL must point to the Flowise API root (e.g., `http://localhost:3000`), not a subpath.
 
-```bash
-# Prerelease (for testing)
-npm version prerelease --preid=dev   # 0.0.0-dev.1 → 0.0.0-dev.2
+### Validation Errors
 
-# Patch / Minor / Major (for stable releases)
-npm version patch                    # 0.0.1
-npm version minor                    # 0.1.0
-npm version major                    # 1.0.0
-```
+-   **"Flow is empty"** — Add at least one node to the canvas.
+-   **"Missing start node"** — Every flow requires a `startAgentflow` node. Add one from the palette.
+-   **"Disconnected nodes"** — All non-sticky-note nodes must be reachable from the start node. Connect any orphaned nodes.
+-   **"Cycle detected"** — Flows must be acyclic (DAGs). Remove the edge that creates the cycle.
 
-### Verify Before Publishing
+### Theme Issues
 
-```bash
-# Build and check the tarball contents
-pnpm build
-npm pack --dry-run
+-   **Dark mode not applying** — Pass `isDarkMode={true}` as a prop. The component uses its own design tokens and does not inherit from the host app's theme.
+-   **Style conflicts** — Ensure `@flowiseai/agentflow/flowise.css` is imported. The component's CSS variables are scoped to avoid collisions.
 
-# Full publish dry-run (runs prepublishOnly + simulates upload)
-npm publish --dry-run
-```
+### Variables Not Resolving
 
-### Publish
+-   **Variable not in picker** — Variables are sourced from upstream nodes. Ensure the source node is connected and upstream of the current node.
+-   **Incorrect path** — Variable syntax is `{{nodeName.outputKey}}`. Check that the node name and output key match exactly.
 
-```bash
-# Prerelease — tagged so `npm install @flowiseai/agentflow` won't pick it up
-npm publish --tag dev
+### Async Options Not Loading
 
-# Stable release — gets the `latest` tag
-npm publish
-```
-
-> The `prepublishOnly` script automatically runs `clean` and `build` before every publish, so stale dist files are never uploaded.
+-   **Empty dropdowns for models/tools/credentials** — These load from the Flowise API. Verify `apiBaseUrl` and `token` are correct and the server is running.
+-   **Network errors in console** — Check browser DevTools for failed requests. The API client logs errors to the console.
 
 ## Documentation
 

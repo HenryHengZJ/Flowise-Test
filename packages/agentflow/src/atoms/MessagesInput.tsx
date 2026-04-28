@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
-import { Box, Button, Chip, IconButton, MenuItem, Select, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Chip, IconButton, MenuItem, Select, Tooltip, Typography } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 import { IconArrowsMaximize, IconPlus, IconTrash, IconVariable } from '@tabler/icons-react'
 
 import type { InputParam, NodeData } from '@/core/types'
 
 import { ExpandTextDialog } from './ExpandTextDialog'
+import { toSuggestionItems } from './toSuggestionItems'
+import { useStableKeys } from './useStableKeys'
+import { VariableInput } from './VariableInput'
+import type { VariableItem } from './VariablePicker'
 
 const MESSAGE_ROLES = [
     { label: 'System', value: 'system' },
@@ -18,7 +22,7 @@ const MESSAGE_ROLES = [
 type MessageRole = (typeof MESSAGE_ROLES)[number]['value']
 
 export interface MessageEntry {
-    role: MessageRole
+    role: MessageRole | ''
     content: string
 }
 
@@ -26,6 +30,8 @@ export interface MessagesInputProps {
     inputParam: InputParam
     data: NodeData
     disabled?: boolean
+    /** Variable items for `{{ }}` autocomplete in message content fields. */
+    variableItems?: VariableItem[]
     onDataChange?: (params: { inputParam: InputParam; newValue: unknown }) => void
 }
 
@@ -34,22 +40,17 @@ export interface MessagesInputProps {
  * Each entry has a role dropdown (system/assistant/developer/user)
  * and a multiline content textarea with variable support ({{ variable }} syntax).
  */
-export function MessagesInput({ inputParam, data, disabled = false, onDataChange }: MessagesInputProps) {
+export function MessagesInput({ inputParam, data, disabled = false, variableItems, onDataChange }: MessagesInputProps) {
     const theme = useTheme()
-    const idCounterRef = useRef(0)
-    const itemKeysRef = useRef<string[]>([])
 
     const messages = useMemo(
-        () => (Array.isArray(data.inputValues?.[inputParam.name]) ? (data.inputValues[inputParam.name] as MessageEntry[]) : []),
-        [data.inputValues, inputParam.name]
+        () => (Array.isArray(data.inputs?.[inputParam.name]) ? (data.inputs[inputParam.name] as MessageEntry[]) : []),
+        [data.inputs, inputParam.name]
     )
 
-    // Grow keys array when new items appear (e.g. on mount or external data changes)
-    useEffect(() => {
-        while (itemKeysRef.current.length < messages.length) {
-            itemKeysRef.current.push(`message-${idCounterRef.current++}`)
-        }
-    }, [messages.length])
+    const { keys: effectiveKeys, removeKey } = useStableKeys(messages.length, 'message')
+
+    const suggestionItems = useMemo(() => toSuggestionItems(variableItems), [variableItems])
 
     const handleRoleChange = useCallback(
         (index: number, role: string) => {
@@ -60,26 +61,33 @@ export function MessagesInput({ inputParam, data, disabled = false, onDataChange
         [messages, inputParam, onDataChange]
     )
 
+    // Track latest inline content locally so the expand dialog always has fresh values,
+    // even if the parent hasn't round-tripped onDataChange back into data yet.
+    // Keyed by item key values so deletes are a simple Map.delete() with no index rebasing.
+    const latestContentRef = useRef<Map<string, string>>(new Map())
+
     const handleContentChange = useCallback(
         (index: number, content: string) => {
+            latestContentRef.current.set(effectiveKeys[index], content)
             const updated = [...messages]
             updated[index] = { ...updated[index], content }
             onDataChange?.({ inputParam, newValue: updated })
         },
-        [messages, inputParam, onDataChange]
+        [effectiveKeys, messages, inputParam, onDataChange]
     )
 
     const handleAddMessage = useCallback(() => {
-        const newMessage: MessageEntry = { role: 'user', content: '' }
+        const newMessage: MessageEntry = { role: '', content: '' }
         onDataChange?.({ inputParam, newValue: [...messages, newMessage] })
     }, [messages, inputParam, onDataChange])
 
     const handleDeleteMessage = useCallback(
         (indexToDelete: number) => {
-            itemKeysRef.current.splice(indexToDelete, 1)
+            latestContentRef.current.delete(effectiveKeys[indexToDelete])
+            removeKey(indexToDelete)
             onDataChange?.({ inputParam, newValue: messages.filter((_, i) => i !== indexToDelete) })
         },
-        [messages, inputParam, onDataChange]
+        [effectiveKeys, messages, inputParam, onDataChange, removeKey]
     )
 
     // Expand dialog state
@@ -92,11 +100,12 @@ export function MessagesInput({ inputParam, data, disabled = false, onDataChange
     const handleExpandConfirm = useCallback(
         (value: string) => {
             if (expandIndex !== null) {
+                latestContentRef.current.set(effectiveKeys[expandIndex], value)
                 handleContentChange(expandIndex, value)
             }
             setExpandIndex(null)
         },
-        [expandIndex, handleContentChange]
+        [effectiveKeys, expandIndex, handleContentChange]
     )
 
     const handleExpandCancel = useCallback(() => {
@@ -115,13 +124,14 @@ export function MessagesInput({ inputParam, data, disabled = false, onDataChange
 
             {messages.map((message, index) => (
                 <Box
-                    key={itemKeysRef.current[index]}
+                    key={effectiveKeys[index]}
                     sx={{
                         p: 2,
+                        mx: 2,
                         mt: 2,
                         mb: 1,
                         border: 1,
-                        borderColor: theme.palette.grey[900] + 25,
+                        borderColor: theme.palette.divider,
                         borderRadius: 2,
                         position: 'relative'
                     }}
@@ -182,7 +192,9 @@ export function MessagesInput({ inputParam, data, disabled = false, onDataChange
                             </Typography>
                             <div style={{ flexGrow: 1 }} />
                             <Tooltip title='Type {{ to select variables'>
-                                <IconVariable size={20} style={{ color: 'teal' }} />
+                                <span style={{ display: 'inline-flex' }}>
+                                    <IconVariable size={20} style={{ color: 'teal' }} />
+                                </span>
                             </Tooltip>
                             <IconButton
                                 size='small'
@@ -195,45 +207,47 @@ export function MessagesInput({ inputParam, data, disabled = false, onDataChange
                                 <IconArrowsMaximize />
                             </IconButton>
                         </div>
-                        <TextField
-                            fullWidth
-                            multiline
-                            minRows={4}
-                            size='small'
+                        <VariableInput
                             value={message.content}
-                            disabled={disabled}
-                            onChange={(e) => handleContentChange(index, e.target.value)}
+                            onChange={(v) => handleContentChange(index, v)}
                             placeholder='Message content (supports {{ variable }} syntax)'
-                            data-testid={`content-input-${index}`}
-                            sx={{ mt: 1 }}
+                            disabled={disabled}
+                            rows={4}
+                            suggestionItems={suggestionItems}
                         />
                     </Box>
                 </Box>
             ))}
 
             {/* Add button */}
-            <Button
-                fullWidth
-                size='small'
-                variant='outlined'
-                disabled={isAddDisabled}
-                sx={{ borderRadius: '16px', mt: 2 }}
-                startIcon={<IconPlus />}
-                onClick={handleAddMessage}
-            >
-                Add {inputParam.label}
-            </Button>
+            <Box sx={{ px: 2, pb: 2 }}>
+                <Button
+                    fullWidth
+                    size='small'
+                    variant='outlined'
+                    disabled={isAddDisabled}
+                    sx={{ borderRadius: '16px', mt: 1 }}
+                    startIcon={<IconPlus />}
+                    onClick={handleAddMessage}
+                >
+                    Add {inputParam.label}
+                </Button>
+            </Box>
 
-            {/* Expand content dialog */}
-            <ExpandTextDialog
-                open={expandIndex !== null}
-                value={expandIndex !== null ? messages[expandIndex]?.content ?? '' : ''}
-                title='Content'
-                placeholder='Message content (supports {{ variable }} syntax)'
-                disabled={disabled}
-                onConfirm={handleExpandConfirm}
-                onCancel={handleExpandCancel}
-            />
+            {/* Expand content dialog — conditionally mounted so it always initializes fresh */}
+            {expandIndex !== null && (
+                <ExpandTextDialog
+                    open={true}
+                    value={latestContentRef.current.get(effectiveKeys[expandIndex]) ?? messages[expandIndex]?.content ?? ''}
+                    title='Content'
+                    placeholder='Message content (supports {{ variable }} syntax)'
+                    disabled={disabled}
+                    inputType='string'
+                    suggestionItems={suggestionItems}
+                    onConfirm={handleExpandConfirm}
+                    onCancel={handleExpandCancel}
+                />
+            )}
         </>
     )
 }
