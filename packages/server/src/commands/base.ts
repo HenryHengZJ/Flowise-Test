@@ -14,8 +14,11 @@ export abstract class BaseCommand extends Command {
     static flags = {
         // General Settings
         FLOWISE_FILE_SIZE_LIMIT: Flags.string(),
+        CUSTOM_MCP_TOOLS_MAX_BYTES: Flags.string(),
+        CUSTOM_MCP_AUTHORIZE_TIMEOUT_MS: Flags.string(),
         PORT: Flags.string(),
         CORS_ORIGINS: Flags.string(),
+        MCP_CORS_ORIGINS: Flags.string(),
         IFRAME_ORIGINS: Flags.string(),
         DEBUG: Flags.string(),
         NUMBER_OF_PROXIES: Flags.string(),
@@ -68,6 +71,10 @@ export abstract class BaseCommand extends Command {
         GOOGLE_CLOUD_STORAGE_PROJ_ID: Flags.string(),
         GOOGLE_CLOUD_STORAGE_BUCKET_NAME: Flags.string(),
         GOOGLE_CLOUD_UNIFORM_BUCKET_ACCESS: Flags.string(),
+        AZURE_BLOB_STORAGE_CONNECTION_STRING: Flags.string(),
+        AZURE_BLOB_STORAGE_ACCOUNT_NAME: Flags.string(),
+        AZURE_BLOB_STORAGE_ACCOUNT_KEY: Flags.string(),
+        AZURE_BLOB_STORAGE_CONTAINER_NAME: Flags.string(),
 
         // Credentials / Secret Keys
         SECRETKEY_STORAGE_TYPE: Flags.string(),
@@ -102,7 +109,10 @@ export abstract class BaseCommand extends Command {
         CUSTOM_MCP_PROTOCOL: Flags.string(),
         HTTP_DENY_LIST: Flags.string(),
         HTTP_SECURITY_CHECK: Flags.string(),
+        PATH_TRAVERSAL_SAFETY: Flags.string(),
         TRUST_PROXY: Flags.string(),
+        OAUTH2_SECURITY_CHECK: Flags.string(),
+        OAUTH2_ALLOWED_TOKEN_DOMAINS: Flags.string(),
 
         // Auth
         APP_URL: Flags.string(),

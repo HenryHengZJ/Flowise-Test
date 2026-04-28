@@ -42,7 +42,7 @@ atoms/
 -   No API calls
 -   Stateless or minimal local state
 -   Imported by features, never the reverse
--   **Forbidden**: Importing from `features/` or `infrastructure/` (except types from `core/types` for prop definitions)
+-   **Forbidden**: Importing from `features/` or `infrastructure/` (except types from `core/types` for prop definitions, design tokens from `core/theme`, and primitives from `core/primitives`)
 
 **Goal:** 100% visual consistency.
 
@@ -110,6 +110,9 @@ features/
 core/
 ├── types/                  # Global interfaces (Node, Edge, Flow)
 │   └── index.ts
+├── primitives/             # Domain-free utilities (safe for atoms)
+│   ├── inputDefaults.ts    # getDefaultValueForType
+│   └── index.ts
 ├── node-config/            # Node configuration (icons, colors, default types)
 │   ├── nodeIcons.ts        # AGENTFLOW_ICONS, DEFAULT_AGENTFLOW_NODES
 │   └── ...
@@ -122,10 +125,10 @@ core/
 │   └── ...
 ├── validation/             # Flow validation logic
 │   ├── flowValidation.ts   # validateFlow, validateNode
+│   ├── connectionValidation.ts  # isValidConnectionAgentflowV2
 │   └── ...
-├── utils/                  # Generic utilities
+├── utils/                  # Domain-aware utilities (NOT importable by atoms)
 │   ├── nodeFactory.ts      # initNode, getUniqueNodeId
-│   ├── connectionValidation.ts
 │   └── ...
 └── index.ts                # Barrel export (use sparingly)
 ```
@@ -137,6 +140,15 @@ core/
 -   No side effects
 -   Pure functions where possible
 -   Can be tested in isolation
+
+#### `core/primitives/` vs `core/utils/`
+
+`core/` contains two utility directories with different import permissions:
+
+-   **`primitives/`** — Domain-free, general-purpose functions with no knowledge of nodes, flows, or any business concept. These are pure data transformations (e.g., computing a default value from a type string). **Safe to import from `atoms/`.**
+-   **`utils/`** — Domain-aware utilities that understand node structures, flow data, or validation logic (e.g., `initNode`, `buildDynamicOutputAnchors`). **Only importable by `features/` and `infrastructure/`.**
+
+When adding a new utility, ask: _"Does this function need to know what a Node or Flow is?"_ If no → `primitives/`. If yes → `utils/`.
 
 **Goal:** To be the framework-agnostic source of truth.
 
@@ -210,7 +222,7 @@ infrastructure/
 
 -   `features` → `atoms`, `infrastructure`, `core` ✅
 -   `infrastructure` → `core` ✅
--   `atoms` → `core/types` only (for type definitions) ✅
+-   `atoms` → `core/types`, `core/theme`, and `core/primitives` only ✅
 -   `core` → nothing (leaf node) ✅
 -   **Atoms and Core are "leaf" nodes** - they cannot import from `features/` or `infrastructure/`
 

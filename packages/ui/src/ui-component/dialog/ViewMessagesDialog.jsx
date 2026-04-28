@@ -50,6 +50,7 @@ import { MultiDropdown } from '@/ui-component/dropdown/MultiDropdown'
 import { StyledButton } from '@/ui-component/button/StyledButton'
 import StatsCard from '@/ui-component/cards/StatsCard'
 import Feedback from '@/ui-component/extended/Feedback'
+import ThinkingCard from '@/views/chatmessage/ThinkingCard'
 
 // store
 import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
@@ -194,7 +195,7 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
     const [sourceDialogProps, setSourceDialogProps] = useState({})
     const [hardDeleteDialogOpen, setHardDeleteDialogOpen] = useState(false)
     const [hardDeleteDialogProps, setHardDeleteDialogProps] = useState({})
-    const [chatTypeFilter, setChatTypeFilter] = useState(['INTERNAL', 'EXTERNAL'])
+    const [chatTypeFilter, setChatTypeFilter] = useState(['INTERNAL', 'EXTERNAL', 'MCP'])
     const [feedbackTypeFilter, setFeedbackTypeFilter] = useState([])
     const [startDate, setStartDate] = useState(new Date(new Date().setMonth(new Date().getMonth() - 1)))
     const [endDate, setEndDate] = useState(new Date())
@@ -311,7 +312,7 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
 
             await chatmessageApi.deleteChatmessage(chatflowid, obj)
             enqueueSnackbar({
-                message: 'Succesfully deleted messages',
+                message: 'Successfully deleted messages',
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'success',
@@ -346,6 +347,8 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
             return 'UI'
         } else if (chatType === 'EVALUATION') {
             return 'Evaluation'
+        } else if (chatType === 'MCP') {
+            return 'MCP'
         }
         return 'API/Embed'
     }
@@ -427,8 +430,8 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                 await chatmessageApi.deleteChatmessage(chatflowid, obj)
                 const description =
                     chatmsg.sessionId && chatmsg.memoryType
-                        ? `Succesfully cleared session id: ${chatmsg.sessionId} from ${chatmsg.memoryType}`
-                        : `Succesfully cleared messages`
+                        ? `Successfully cleared session id: ${chatmsg.sessionId} from ${chatmsg.memoryType}`
+                        : `Successfully cleared messages`
                 enqueueSnackbar({
                     message: description,
                     options: {
@@ -509,6 +512,10 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
             if (chatmsg.usedTools) obj.usedTools = chatmsg.usedTools
             if (chatmsg.fileAnnotations) obj.fileAnnotations = chatmsg.fileAnnotations
             if (chatmsg.agentReasoning) obj.agentReasoning = chatmsg.agentReasoning
+            if (chatmsg.reasonContent && typeof chatmsg.reasonContent === 'object') {
+                obj.thinking = chatmsg.reasonContent.thinking
+                obj.thinkingDuration = chatmsg.reasonContent.thinkingDuration
+            }
             if (chatmsg.artifacts) {
                 obj.artifacts = chatmsg.artifacts
                 obj.artifacts.forEach((artifact) => {
@@ -751,7 +758,7 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
         return () => {
             setChatLogs([])
             setChatMessages([])
-            setChatTypeFilter(['INTERNAL', 'EXTERNAL'])
+            setChatTypeFilter(['INTERNAL', 'EXTERNAL', 'MCP'])
             setFeedbackTypeFilter([])
             setSelectedMessageIndex(0)
             setSelectedChatId('')
@@ -900,6 +907,10 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                                     {
                                         label: 'API/Embed',
                                         name: 'EXTERNAL'
+                                    },
+                                    {
+                                        label: 'MCP',
+                                        name: 'MCP'
                                     },
                                     {
                                         label: 'Evaluations',
@@ -1225,6 +1236,14 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                                                                             return <>{renderFileUploads(item, index)}</>
                                                                         })}
                                                                     </div>
+                                                                )}
+                                                                {message.thinking && (
+                                                                    <ThinkingCard
+                                                                        thinking={message.thinking}
+                                                                        thinkingDuration={message.thinkingDuration}
+                                                                        isThinking={message.isThinking}
+                                                                        customization={customization}
+                                                                    />
                                                                 )}
                                                                 {message.agentReasoning && (
                                                                     <div style={{ display: 'block', flexDirection: 'row', width: '100%' }}>

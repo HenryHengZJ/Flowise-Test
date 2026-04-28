@@ -33,7 +33,7 @@ import { RateLimiterManager } from './utils/rateLimit'
 import { SSEStreamer } from './utils/SSEStreamer'
 import { Telemetry } from './utils/telemetry'
 import { validateAPIKey } from './utils/validateKey'
-import { getAllowedIframeOrigins, getCorsOptions, sanitizeMiddleware } from './utils/XSS'
+import { getCorsOptions, getIframeSecurityHeaders, sanitizeMiddleware } from './utils/XSS'
 
 declare global {
     namespace Express {
@@ -128,6 +128,7 @@ export class App {
 
             // Initialize SSE Streamer
             this.sseStreamer = new SSEStreamer()
+            this.sseStreamer.startHeartbeat()
             logger.info('🌊 [server]: SSE Streamer initialized successfully')
 
             // Init Queues
@@ -148,6 +149,7 @@ export class App {
 
                 this.redisSubscriber = new RedisEventSubscriber(this.sseStreamer)
                 await this.redisSubscriber.connect()
+                this.redisSubscriber.startPeriodicCleanup()
                 logger.info('🔗 [server]: Redis event subscriber connected successfully')
             }
 
@@ -185,15 +187,12 @@ export class App {
         this.app.use(cookieParser())
 
         // Allow embedding from specified domains.
+        const iframeSecurityHeaders = getIframeSecurityHeaders()
         this.app.use((req, res, next) => {
-            const allowedOrigins = getAllowedIframeOrigins()
-            if (allowedOrigins == '*') {
-                next()
-            } else {
-                const csp = `frame-ancestors ${allowedOrigins}`
-                res.setHeader('Content-Security-Policy', csp)
-                next()
+            for (const [headerName, headerValue] of Object.entries(iframeSecurityHeaders)) {
+                res.setHeader(headerName, headerValue)
             }
+            next()
         })
 
         // Switch off the default 'X-Powered-By: Express' header
@@ -204,11 +203,6 @@ export class App {
 
         // Add the sanitizeMiddleware to guard against XSS
         this.app.use(sanitizeMiddleware)
-
-        this.app.use((req, res, next) => {
-            res.header('Access-Control-Allow-Credentials', 'true') // Allow credentials (cookies, etc.)
-            if (next) next()
-        })
 
         const denylistURLs = process.env.DENYLIST_URLS ? process.env.DENYLIST_URLS.split(',') : []
         const whitelistURLs = WHITELIST_URLS.filter((url) => !denylistURLs.includes(url))
@@ -361,6 +355,7 @@ export class App {
 
     async stopApp() {
         try {
+            this.sseStreamer.stopHeartbeat()
             const removePromises: any[] = []
             removePromises.push(this.telemetry.flush())
             if (this.queueManager) {

@@ -5,10 +5,8 @@ import { getModels, getRegions, MODEL_TYPE } from '../../../src/modelLoader'
 import { getAWSCredentialConfig } from '../../../src/awsToolsUtils'
 import { ChatBedrockConverseInput, ChatBedrockConverse } from '@langchain/aws'
 import { BedrockChat } from './FlowiseAWSChatBedrock'
+import { supportsSamplingParams } from '../../../src/anthropicUtils'
 
-/**
- * @author Michael Connor <mlconnor@yahoo.com>
- */
 class AWSChatBedrock_ChatModels implements INode {
     label: string
     name: string
@@ -22,7 +20,7 @@ class AWSChatBedrock_ChatModels implements INode {
     inputs: INodeParams[]
 
     constructor() {
-        this.label = 'AWS ChatBedrock'
+        this.label = 'AWS Bedrock'
         this.name = 'awsChatBedrock'
         this.version = 6.1
         this.type = 'AWSChatBedrock'
@@ -81,6 +79,15 @@ class AWSChatBedrock_ChatModels implements INode {
                 additionalParams: true
             },
             {
+                label: 'Allow Image Uploads',
+                name: 'allowImageUploads',
+                type: 'boolean',
+                description:
+                    'Allow image input. Refer to the <a href="https://docs.flowiseai.com/using-flowise/uploads#image" target="_blank">docs</a> for more details.',
+                default: false,
+                optional: true
+            },
+            {
                 label: 'Temperature',
                 name: 'temperature',
                 type: 'number',
@@ -99,15 +106,6 @@ class AWSChatBedrock_ChatModels implements INode {
                 optional: true,
                 additionalParams: true,
                 default: 200
-            },
-            {
-                label: 'Allow Image Uploads',
-                name: 'allowImageUploads',
-                type: 'boolean',
-                description:
-                    'Allow image input. Refer to the <a href="https://docs.flowiseai.com/using-flowise/uploads#image" target="_blank">docs</a> for more details.',
-                default: false,
-                optional: true
             },
             {
                 label: 'Latency Optimized',
@@ -143,12 +141,20 @@ class AWSChatBedrock_ChatModels implements INode {
         const latencyOptimized = nodeData.inputs?.latencyOptimized as boolean
         const endpointHost = (nodeData.inputs?.endpointHost as string)?.trim()
 
+        const resolvedModel = customModel ? customModel : iModel
+
         const obj: ChatBedrockConverseInput = {
             region: iRegion,
-            model: customModel ? customModel : iModel,
+            model: resolvedModel,
             maxTokens: parseInt(iMax_tokens_to_sample, 10),
-            temperature: parseFloat(iTemperature),
             streaming: streaming ?? true
+        }
+
+        // Newer Anthropic Claude models (Opus 4.7+) don't accept sampling
+        // parameters. AWS Bedrock surfaces those models with names like
+        // "anthropic.claude-opus-4-7-v1" or "us.anthropic.claude-opus-4-7-...".
+        if (supportsSamplingParams(resolvedModel)) {
+            obj.temperature = parseFloat(iTemperature)
         }
 
         if (latencyOptimized) {

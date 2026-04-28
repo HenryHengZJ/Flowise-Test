@@ -6,15 +6,18 @@
 
 import { type ComponentType, lazy, Suspense, useState } from 'react'
 
-import { apiBaseUrl, token } from './config'
+import { agentflowId, apiBaseUrl, token } from './config'
 import {
     AllNodeTypesExampleProps,
     BasicExampleProps,
+    CustomNodeExampleProps,
     CustomUIExampleProps,
     DarkModeExampleProps,
+    E2eExampleProps,
     FilteredComponentsExampleProps,
     MultiNodeFlowProps,
-    StatusIndicatorsExampleProps
+    StatusIndicatorsExampleProps,
+    ValidationActionsExampleProps
 } from './demos'
 import { PropsDisplay } from './PropsDisplay'
 
@@ -31,6 +34,13 @@ const examples: Array<{
         description: 'Simple canvas with imperative methods',
         props: BasicExampleProps,
         component: lazy(() => import('./demos/BasicExample').then((m) => ({ default: m.BasicExample })))
+    },
+    {
+        id: 'e2e',
+        name: 'E2E (Live Instance)',
+        description: 'Full integration: load/save/delete flow, test run, run status — requires VITE_FLOW_ID',
+        props: E2eExampleProps,
+        component: lazy(() => import('./demos/E2eExample').then((m) => ({ default: m.E2eExample })))
     },
     {
         id: 'multi-node',
@@ -54,6 +64,13 @@ const examples: Array<{
         component: lazy(() => import('./demos/StatusIndicatorsExample').then((m) => ({ default: m.StatusIndicatorsExample })))
     },
     {
+        id: 'custom-node',
+        name: 'Custom Node',
+        description: 'Node with self-contained InputParam definitions and show/hide conditions',
+        props: CustomNodeExampleProps,
+        component: lazy(() => import('./demos/CustomNodeExample').then((m) => ({ default: m.CustomNodeExample })))
+    },
+    {
         id: 'custom-ui',
         name: 'Custom UI',
         description: 'Custom header and palette via render props',
@@ -73,6 +90,13 @@ const examples: Array<{
         description: 'Restrict available nodes with presets',
         props: FilteredComponentsExampleProps,
         component: lazy(() => import('./demos/FilteredComponentsExample').then((m) => ({ default: m.FilteredComponentsExample })))
+    },
+    {
+        id: 'canvas-actions',
+        name: 'Canvas Actions',
+        description: 'Custom FABs alongside the validation button via canvasActions',
+        props: ValidationActionsExampleProps,
+        component: lazy(() => import('./demos/ValidationActionsExample').then((m) => ({ default: m.ValidationActionsExample })))
     }
 ]
 
@@ -99,7 +123,7 @@ function LoadingFallback() {
 }
 
 export default function App() {
-    const [selectedExample, setSelectedExample] = useState<ExampleId>('basic')
+    const [selectedExample, setSelectedExample] = useState<ExampleId>(agentflowId ? 'e2e' : 'basic')
     const [showProps, setShowProps] = useState(false)
     // Config loaded from environment variables
 

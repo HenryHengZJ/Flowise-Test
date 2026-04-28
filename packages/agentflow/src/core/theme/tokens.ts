@@ -28,20 +28,54 @@ const baseColors = {
     gray800: '#333',
 
     // Dark mode grays
+    lightBorderDefault: '#21212125',
+    darkBorderDefault: 'rgba(255, 255, 255, 0.145)',
     darkGray100: '#1a1a1a',
     darkGray200: '#1a1a2e',
     darkGray300: '#252525',
+    darkGray350: '#23262c',
     darkGray400: '#2d2d2d',
+    darkGray450: '#32353b',
+    darkGray460: '#454c59',
     darkGray500: '#404040',
+    darkBlueHover: '#233345',
     darkGray600: '#525252',
     darkGray700: '#555',
+    darkGray750: '#888',
     darkGray800: '#aaa',
 
     // Status colors
     success: '#4caf50',
     error: '#f44336',
     warning: '#ff9800',
+    warningBg: '#fefcbf',
+    warningText: '#744210',
     info: '#2196f3',
+
+    // MUI palette colors - primary (blue)
+    primaryLight: '#e3f2fd',
+    primaryMain: '#2196f3',
+    primaryDark: '#1e88e5',
+
+    // MUI palette colors - secondary (purple)
+    secondaryLight: '#ede7f6',
+    secondaryMain: '#673ab7',
+    secondaryDark: '#5e35b1',
+
+    // MUI palette colors - success (green)
+    successLight: '#cdf5d8',
+    successMain: '#00e676',
+    successDark: '#00c853',
+
+    // MUI palette colors - error (red)
+    errorLight: '#f3d2d2',
+    errorMain: '#f44336',
+    errorDark: '#c62828',
+
+    // MUI palette colors - warning (yellow)
+    warningLight: '#fff8e1',
+    warningMain: '#ffe57f',
+    warningDark: '#ffc107',
 
     // Node type colors (brand colors)
     nodeCondition: '#FFB938',
@@ -90,14 +124,19 @@ export const tokens = {
         background: {
             canvas: { light: baseColors.gray100, dark: baseColors.darkGray100 },
             palette: { light: baseColors.gray50, dark: baseColors.darkGray300 },
-            card: { light: baseColors.white, dark: baseColors.darkGray400 },
+            card: { light: baseColors.white, dark: baseColors.darkGray350 },
             cardHover: { light: baseColors.gray75, dark: baseColors.darkGray500 },
-            header: { light: baseColors.white, dark: baseColors.darkGray400 }
+            header: { light: baseColors.white, dark: baseColors.darkGray400 },
+            input: { light: baseColors.gray50, dark: baseColors.darkGray450 },
+            optionHover: { light: '', dark: baseColors.darkBlueHover },
+            listItemSelected: { light: '', dark: baseColors.darkGray460 }
         },
 
         border: {
-            default: { light: baseColors.gray300, dark: baseColors.darkGray500 },
-            hover: { light: baseColors.gray400, dark: baseColors.darkGray600 }
+            default: { light: baseColors.gray300, dark: baseColors.darkBorderDefault },
+            hover: { light: baseColors.gray400, dark: baseColors.darkGray600 },
+            input: { light: baseColors.lightBorderDefault, dark: baseColors.darkGray750 },
+            validation: baseColors.nodeCondition
         },
 
         text: {
@@ -106,11 +145,42 @@ export const tokens = {
             tertiary: { light: baseColors.gray600, dark: baseColors.gray500 }
         },
 
+        // MUI theme palette colors - referenced from base
+        palette: {
+            primary: {
+                light: baseColors.primaryLight,
+                main: baseColors.primaryMain,
+                dark: baseColors.primaryDark
+            },
+            secondary: {
+                light: baseColors.secondaryLight,
+                main: baseColors.secondaryMain,
+                dark: baseColors.secondaryDark
+            },
+            success: {
+                light: baseColors.successLight,
+                main: baseColors.successMain,
+                dark: baseColors.successDark
+            },
+            error: {
+                light: baseColors.errorLight,
+                main: baseColors.errorMain,
+                dark: baseColors.errorDark
+            },
+            warning: {
+                light: baseColors.warningLight,
+                main: baseColors.warningMain,
+                dark: baseColors.warningDark
+            }
+        },
+
         // Semantic status colors - referenced from base
         semantic: {
             success: baseColors.success,
             error: baseColors.error,
             warning: baseColors.warning,
+            warningBg: baseColors.warningBg,
+            warningText: baseColors.warningText,
             info: baseColors.info
         },
 
@@ -125,6 +195,20 @@ export const tokens = {
             background: {
                 dots: { light: baseColors.darkGray800, dark: baseColors.darkGray700 }
             }
+        },
+
+        // Syntax highlight colors for code blocks (TipTap/lowlight)
+        syntaxHighlight: {
+            background: { light: '#f5f5f5', dark: '#2d2d2d' },
+            text: { light: '#333333', dark: '#d4d4d4' },
+            comment: { light: '#6a9955', dark: '#6a9955' },
+            variable: { light: '#d73a49', dark: '#9cdcfe' },
+            number: { light: '#e36209', dark: '#b5cea8' },
+            string: { light: '#22863a', dark: '#ce9178' },
+            title: { light: '#6f42c1', dark: '#dcdcaa' },
+            keyword: { light: '#005cc5', dark: '#569cd6' },
+            operator: { light: '#333333', dark: '#d4d4d4' },
+            punctuation: { light: '#333333', dark: '#d4d4d4' }
         },
 
         // Gradient definitions - referenced from base
@@ -158,12 +242,45 @@ export const tokens = {
         stickyNote: '0 2px 4px rgba(0, 0, 0, 0.1)'
     },
 
+    // Typography
+    typography: {
+        // Font size scale
+        fontSize: {
+            xs: '0.625rem', // 10px — badge, compact caption
+            sm: '0.75rem', // 12px — secondary label, helper text
+            md: '0.875rem', // 14px — body, input, primary label
+            lg: '1rem' // 16px — section heading
+        },
+
+        // Font weight scale
+        fontWeight: {
+            regular: 400,
+            medium: 500,
+            semibold: 600
+        },
+
+        /** Matches MUI OutlinedInput's default line-height (1.4375em) so the
+         *  RichTextEditor aligns with standard TextField height at the same row count. */
+        rowHeightRem: 1.4375,
+        /** Single-line editor height — approximates MUI small input (38.4px) */
+        singleLineHeightRem: 2.4,
+        /** Tighter line-height for single-line mode to vertically center text */
+        singleLineLineHeightEm: 0.875
+    },
+
     // Border radius scale
     borderRadius: {
         sm: 4,
         md: 8,
         lg: 12,
         round: '50%'
+    },
+
+    // Z-index scale for canvas overlay elements.
+    // All values sit below the Canvas Kit modal overlay (30–50).
+    zIndex: {
+        canvasButton: 10, // FABs and button containers
+        canvasPanel: 20 // Open panels/poppers anchored to buttons
     }
 } as const
 
